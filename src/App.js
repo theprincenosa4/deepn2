@@ -351,22 +351,13 @@ export default function DeepN() {
     await patch({ history: [q, ...history.filter(x => x !== q)].slice(0, 20) });
     if (session?.token) { try { await sb.logSearch(session.token, session.user?.id, q, country.name); } catch {} }
 
-    const prompt = `You are DeepN, a global product search engine. Search: "${q}"${cat !== "All" ? ` category: ${cat}` : ""}. Country: ${country.name} (${country.currency}). Available retailers: ${country.retailers}.
-
-Respond ONLY with valid JSON — no markdown, no explanation:
-{"summary":"2-sentence expert buying guide","products":[{"name":"Full product name + model","retailer":"retailer from available list","price":"${country.currency} 299","oldPrice":"${country.currency} 349","rating":4.7,"reviews":12500,"badge":"best","badgeLabel":"Best Pick","icon":"emoji","pros":"One sentence reason to buy","url":"https://valid-retailer-search-url.com/search?q=product"}]}
-
-Rules: 4-5 products, different retailers, realistic ${country.currency} prices, one badge must be "best", include one budget option.`;
-
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: MODEL, max_tokens: 1000, messages: [{ role: "user", content: prompt }] })
+        body: JSON.stringify({ query: q, category: cat, country })
       });
-      const data = await res.json();
-      const text = data.content?.find(b => b.type === "text")?.text || "{}";
-      const parsed = JSON.parse(text.replace(/```json|```/g, "").trim());
+      const parsed = await res.json();
       setResults(parsed.products || []);
       setSummary(parsed.summary || "");
     } catch { setSummary("Search failed — please try again."); }
