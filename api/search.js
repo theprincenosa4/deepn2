@@ -1,41 +1,73 @@
 export default async function handler(req, res) {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  
-    const { query, category, country } = req.body;
-    if (!query) return res.status(400).json({ error: 'Query required' });
-  
-    const prompt = `You are DeepN, a global product search engine. Search: "${query}"${category && category !== 'All' ? ` category: ${category}` : ''}. Country: ${country.name} (${country.currency}). Available retailers: ${country.retailers}.
-  
-  Respond ONLY with valid JSON — no markdown, no explanation:
-  {"summary":"2-sentence expert buying guide","products":[{"name":"Full product name + model","retailer":"retailer from available list","price":"${country.currency} 299","oldPrice":"${country.currency} 349","rating":4.7,"reviews":12500,"badge":"best","badgeLabel":"Best Pick","icon":"emoji","pros":"One sentence reason to buy","url":"https://valid-retailer-search-url.com/search?q=product"}]}
-  
-  Rules: 4-5 products, different retailers, realistic ${country.currency} prices, one badge must be "best", include one budget option.`;
-  
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': process.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01'
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }]
-        })
-      });
-  
-      const data = await response.json();
-      const text = data.content?.find(b => b.type === 'text')?.text || '{}';
-      const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
-      res.status(200).json(parsed);
-    } catch (err) {
-      res.status(500).json({ error: 'Search failed', details: err.message });
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const { query, category, country } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'Query required' });
+
+  const countryName = country?.name || 'United States';
+  const countryCurrency = country?.currency || 'USD';
+  const countryRetailers = country?.retailers || 'Amazon, Walmart, Best Buy, Target';
+
+  const prompt = `You are a product search engine. The user searched for: "${query}".
+Country: ${countryName}. Currency: ${countryCurrency}. Retailers available: ${countryRetailers}.
+
+Reply ONLY with this exact JSON format, no markdown, no extra text:
+{
+  "summary": "Two sentence buying guide for ${query}",
+  "products": [
+    {
+      "name": "Product full name and model",
+      "retailer": "Amazon",
+      "price": "${countryCurrency} 499",
+      "oldPrice": "${countryCurrency} 599",
+      "rating": 4.7,
+      "reviews": 15000,
+      "badge": "best",
+      "badgeLabel": "Best Pick",
+      "icon": "🎮",
+      "pros": "One sentence on why to buy this",
+      "url": "https://www.amazon.com/s?k=${query.replace(/ /g, '+')}"
     }
+  ]
+}
+Include 4 products total across different retailers. Make prices realistic in ${countryCurrency}. One must have badge "best", one must be a budget option with badge "hot".`;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      return res.status(500).json({ error: data.error.message });
+    }
+
+    const text = data.content?.[0]?.text || '{}';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return res.status(500).json({ error: 'No JSON in response', raw: text });
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return res.status(200).json(parsed);
+
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
+}
