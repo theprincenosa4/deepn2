@@ -352,7 +352,7 @@ export default function DeepN() {
     if (session?.token) { try { await sb.logSearch(session.token, session.user?.id, q, country.name); } catch {} }
 
     try {
-      const res = await fetch("/api/search", {
+      const res = await fetch("https://deepn2.vercel.app/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, category: cat, country })
